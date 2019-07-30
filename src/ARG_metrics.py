@@ -39,7 +39,7 @@ def get_metrics(true_nexus_fn, inferred_nexus_fns, variant_positions = None, ran
     :param str true_nexus_fn: The path to the file to write the SVG. If None, do not
         write to file.
     :param str (or array of str) inferred_nexus_fns: Other filenames.
-    :param list variant_positions: The height of the image in pixels.
+    :param list variant_positions: A list of variant positions.
     :param int randomly_resolve_inferred: If Falsey do not randomly resolve polytomies.
     :return: A dictionary giving the average tree stats, whose keys are the method
         names as returned by get_metric_names().
