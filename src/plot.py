@@ -118,25 +118,42 @@ class StoringEveryone(Figure):
         largest_n = np.array(df.sample_size)[-1]
 
         index = df.vcf > 0
-        line, = ax1.loglog(df.sample_size[index], df.vcf[index], "^", label="vcf")
-        ax1.loglog(df.sample_size, df.vcf_fit, "--", color=line.get_color(), label="")
+        line, = ax1.loglog(df.sample_size, df.vcf_fit, "-", color="tab:pink", label="")
+        ax1.loglog(
+            df.sample_size[index], df.vcf[index], "d", label="VCF",
+            color=line.get_color())
         largest_value = np.array(df.vcf_fit)[-1]
         ax1.annotate(
             humanize.naturalsize(largest_value * GB, binary=True, format="%d"),
             textcoords="offset points", xytext=xytext,
             xy=(largest_n, largest_value), xycoords="data")
 
-        line, = ax1.loglog(df.sample_size[index], df.vcfz[index], "s", label="vcf.gz")
-        ax1.loglog(df.sample_size, df.vcfz_fit, "--", color=line.get_color(), label="")
+        line, = ax1.loglog(
+            df.sample_size, df.vcfz_fit, ":", label="", color=line.get_color())
+        ax1.loglog(
+            df.sample_size[index], df.vcfz[index], "d", label="Compressed VCF",
+            color=line.get_color(), markerfacecolor='w')
         largest_value = np.array(df.vcfz_fit)[-1]
         ax1.annotate(
             humanize.naturalsize(largest_value * GB, binary=True, format="%d"),
             textcoords="offset points", xytext=xytext,
             xy=(largest_n, largest_value), xycoords="data")
 
+        index = df.pbwt > 0
         line, = ax1.loglog(
-            df.sample_size, df.uncompressed, "o", label="trees")
-        ax1.loglog(df.sample_size, df.tsk_fit, "--", color=line.get_color(), label="")
+            df.sample_size[index], df.pbwt[index], "-", color="tab:orange", label="")
+        ax1.loglog(
+            df.sample_size[index], df.pbwt[index], "s", label="pbwt",
+            color=line.get_color())
+        line, = ax1.loglog(
+            df.sample_size[index], df.pbwtz[index], ":", label="", color=line.get_color())
+        ax1.loglog(
+            df.sample_size[index], df.pbwtz[index], "s", label="Compressed pbwt",
+            color=line.get_color(), markerfacecolor='w')
+
+        line, = ax1.loglog(
+            df.sample_size, df.uncompressed, "o", label="Trees", color="b")
+        ax1.loglog(df.sample_size, df.tsk_fit, "-", color=line.get_color(), label="")
         largest_value = np.array(df.tsk_fit)[-1]
         ax1.annotate(
             humanize.naturalsize(largest_value * GB, binary=True, format="%d"),
@@ -144,19 +161,64 @@ class StoringEveryone(Figure):
             xy=(largest_n, largest_value), xycoords="data")
 
         line, = ax1.loglog(
-            df.sample_size, df.compressed, "*", label="trees.gz")
-        ax1.loglog(df.sample_size, df.tskz_fit, "--", color=line.get_color(), label="")
+            df.sample_size, df.tskz_fit, ":", label="", color=line.get_color())
+        ax1.loglog(df.sample_size, df.compressed, "o", label="Compressed trees",
+            color=line.get_color(), markerfacecolor='w')
         largest_value = np.array(df.tskz_fit)[-1]
         ax1.annotate(
             humanize.naturalsize(largest_value * GB, binary=True, format="%d"),
             textcoords="offset points", xytext=xytext,
             xy=(largest_n, largest_value), xycoords="data")
 
+
         ax1.set_xlabel("Number of chromosomes")
         ax1.set_ylabel("File size (GiB)")
         plt.legend()
         # plt.tight_layout()
         self.save()
+
+        plt.clf()
+        fig = plt.figure()
+        ax1 = fig.add_subplot(111)
+        largest_n = 10**7
+        index = df.sample_size <= largest_n
+        # Rescale to MiB
+        uncompressed = np.array(df.uncompressed[index] * 1024)
+        compressed = np.array(df.compressed[index] * 1024)
+        pbwt = np.array(df.pbwt[index] * 1024)
+        pbwtz = np.array(df.pbwtz[index] * 1024)
+        ax1.loglog(df.sample_size[index], uncompressed, "-o", label="trees")
+        largest_value = uncompressed[-1]
+        ax1.annotate(
+            humanize.naturalsize(largest_value * 1024**2, binary=True, format="%.1f"),
+            textcoords="offset points", xytext=xytext,
+            xy=(largest_n, largest_value), xycoords="data")
+
+        ax1.loglog(df.sample_size[index], compressed, "-o", label="Compressed trees")
+        largest_value = compressed[-1]
+        ax1.annotate(
+            humanize.naturalsize(largest_value * 1024**2, binary=True, format="%d"),
+            textcoords="offset points", xytext=xytext,
+            xy=(largest_n, largest_value - 10), xycoords="data")
+
+        ax1.loglog(df.sample_size[index], pbwt, "-s", label="pbwt")
+        largest_value = pbwt[-1]
+        ax1.annotate(
+            humanize.naturalsize(largest_value * 1024**2, binary=True, format="%d"),
+            textcoords="offset points", xytext=xytext,
+            xy=(largest_n, largest_value), xycoords="data")
+
+        ax1.loglog(df.sample_size[index], pbwtz, "-s", label="Compressed pbwt")
+        largest_value = pbwtz[-1]
+        ax1.annotate(
+            humanize.naturalsize(largest_value * 1024**2, binary=True, format="%d"),
+            textcoords="offset points", xytext=xytext,
+            xy=(largest_n, largest_value + 10), xycoords="data")
+
+        ax1.set_ylabel("File size (MiB)")
+        ax1.set_xlabel("Number of chromosomes")
+        plt.legend()
+        self.save("storing_everyone_pbwt")
 
 
 class SampleEdges(Figure):
@@ -380,10 +442,10 @@ class ToolsFigure(Figure):
     # Colours taken from Matplotlib default color wheel.
     # https://matplotlib.org/users/dflt_style_changes.html
     tools_format = collections.OrderedDict([
-        ("ARGweaver", {"mark":"o", "col":"#d62728"}),
-        ("RentPlus",  {"mark":"^", "col":"#2ca02c"}),
-        ("fastARG",   {"mark":"s", "col":"#ff7f0e"}),
-        ("tsinfer",   {"mark":"*", "col":"#1f77b4"}),
+        ("ARGweaver", {"mark":"*", "col":"#d62728"}),
+        ("RentPlus",  {"mark":"d", "col":"#2ca02c"}),
+        ("fastARG",   {"mark":"^", "col":"#ff7f0e"}),
+        ("tsinfer",   {"mark":"o", "col":"#1f77b4"}),
     ])
 
     error_bars = True
@@ -725,16 +787,19 @@ class MetricsAllToolsFigure(TreeMetricsFigure):
 
         sample_sizes = self.data.sample_size.unique()
         # x-direction is different error rates
-        error_params = self.data.error_param.unique()
+        seq_error_params = self.data.error_param.unique()
         # y-direction is the permutations of metric + whether it is rooted
         metric_and_rooting = self.data.groupby(["metric", "rooting"]).groups
+        metric_and_rooting = collections.OrderedDict( # make a consistent order
+            sorted(metric_and_rooting.items(), key=lambda x: x[0]))
         # sort this so that metrics come out in a set order (TO DO)
-        fig, axes = plt.subplots(len(metric_and_rooting),
-            len(error_params), figsize=(6*len(error_params), 15), sharey='row')
+        fig, axes = plt.subplots(len(metric_and_rooting), len(seq_error_params),
+            squeeze=False, sharey='row',
+            figsize=(6*len(seq_error_params), 15))
         for j, ((metric, root), rows) in enumerate(metric_and_rooting.items()):
-            for k, error in enumerate(error_params):
+            for k, error in enumerate(seq_error_params):
                 # we are in the j,k th subplot
-                ax = axes[j][k] if len(error_params)>1 else axes[j]
+                ax = axes[j][k]
                 ax.set_xscale('log')
                 display_order = self.single_metric_plot(
                     self.data.loc[rows].query("error_param == @error"), "mutation_rate",
@@ -782,9 +847,9 @@ class MetricAllToolsFigure(TreeMetricsFigure):
     """
     plot_height = 4.5
     name = "metric_all_tools"
-    y_axis_label="Average distance from true trees"
+    #y_axis_label="Average distance from true trees"
     hide_polytomy_breaking = True
-    output_metrics = [("KC","rooted")] #can add extras in here if necessary
+    output_metrics = [("KC","rooted"), ("RF", "rooted")] #can add extras in here if necessary
 
     def plot(self):
         if getattr(self,"hide_polytomy_breaking", None):
@@ -801,24 +866,46 @@ class MetricAllToolsFigure(TreeMetricsFigure):
             rho = rhos[0]
             method = averaging_method[0]
 
-            # x-direction is different error rates
-            error_params = df.error_param.unique()
+            # x-direction is different sequencing error rates
+            try:
+                seq_error_params = df.error_param.unique()
+            except AttributeError:
+                seq_error_params = [0]
 
-            fig, axes = plt.subplots(1, len(error_params), sharey=True,
-                figsize=getattr(self,'figsize',(6*len(error_params), self.plot_height)))
-            for k, error in enumerate(error_params):
-                ax = axes[k] if len(error_params)>1 else axes
-                display_order = self.single_metric_plot(
-                    df.query("(" + ") and (".join(query + ["error_param == @error"]) + ")"),
-                    "mutation_rate", ax, method, rho)
-                ax.set_title(self.error_label(error))
-                ax.set_xlabel("Mutation rate")
-                ax.set_xscale('log')
-                if k == 0:
-                    ax.set_ylim(getattr(self,'ylim', 0))
-                    rooting_suffix = " (unrooted)" if rooting=="unrooted" else ""
-                    ylab = getattr(self, 'y_axis_label', self.metric_titles[metric] + rooting_suffix)
-                    ax.set_ylabel(ylab)
+            # y-direction is different ancestral allele error rates (if present)
+            try:
+                aa_error_params = self.data.ancestral_state_error_param.unique()
+            except AttributeError:
+                aa_error_params = [0]
+
+            fig, axes = plt.subplots(len(aa_error_params), len(seq_error_params),
+                squeeze=False, sharey=True,
+                figsize=getattr(self,'figsize',(6*len(seq_error_params), self.plot_height)))
+                # Used for final version of Figure 3.
+                # figsize=(7, 3.5))
+            for j, aa_error in enumerate(aa_error_params):
+                for k, seq_error in enumerate(seq_error_params):
+                    ax = axes[j][k]
+                    subquery = query
+                    if len(seq_error_params) > 1:
+                        subquery.append("error_param == @seq_error")
+                    if len(aa_error_params) > 1:
+                        subquery.append("ancestral_state_error_param == @aa_error")
+                    display_order = self.single_metric_plot(
+                        df.query("(" + ") and (".join(subquery) + ")"),
+                        "mutation_rate", ax, method, rho)
+                    ax.set_title(self.error_label(seq_error))
+                    ax.set_xlabel("Mutation rate")
+                    ax.set_xscale('log')
+                    if k == 0:
+                        ax.set_ylim(getattr(self,'ylim', 0))
+                        rooting_suffix = " (unrooted)" if rooting=="unrooted" else ""
+                        ylab = getattr(self, 'y_axis_label', None)
+                        if ylab is None:
+                            ylab = metric + rooting_suffix + " metric"
+                        if len(aa_error_params)>1 or aa_error != 0:
+                            ylab += ", {:g}% ancestral state error".format(aa_error*100)
+                        ax.set_ylabel(ylab)
 
             # Create legends from custom artists
             artists = [
@@ -829,13 +916,21 @@ class MetricAllToolsFigure(TreeMetricsFigure):
                 for d in display_order[['tool', 'polytomies']].drop_duplicates().itertuples()]
             tool_labels = [d.tool + ("" if d.polytomies == "retained" else (" (polytomies " + d.polytomies + ")"))
                 for d in display_order[['tool', 'polytomies']].drop_duplicates().itertuples()]
-            first_legend = axes[0].legend(
+            first_legend = axes[0][0].legend(
                 artists, tool_labels, numpoints=1, labelspacing=0.1, loc="upper right")
             fig.tight_layout()
             if len(self.output_metrics)==1:
                 self.save()
             else:
                 self.save("_".join([self.name, metric, rooting]))
+
+
+class MetricAllToolsAccuracyBadAncestorsSummary(MetricAllToolsFigure):
+    name = "metric_all_tools_accuracy_bad_ancestors"
+    output_metrics = [("KC","rooted"), ("RF", "rooted")]
+    y_axis_label = None
+    hide_polytomy_breaking = False
+    plot_height = 10.5
 
 
 class MetricAllToolsAccuracyDemographyFigure(MetricAllToolsFigure):
@@ -874,13 +969,13 @@ class MetricAllToolsAccuracySweepFigure(TreeMetricsFigure):
             rho = rhos[0]
             method = averaging_method[0]
             # x-direction is different error rates
-            error_params = df.error_param.unique()
-            fig, axes = plt.subplots(len(output_freqs), len(error_params),
-                figsize=getattr(self,'figsize',(6*len(error_params), 2.5*len(output_freqs))),
-                sharey=True)
+            seq_error_params = df.error_param.unique()
+            fig, axes = plt.subplots(len(output_freqs), len(seq_error_params),
+                figsize=getattr(self,'figsize',(6*len(seq_error_params), 2.5*len(output_freqs))),
+                squeeze=False, sharey=True)
             for j, output_data in enumerate(output_freqs.itertuples()):
-                for k, error in enumerate(error_params):
-                    ax = axes[j][k] if len(error_params)>1 else axes[j]
+                for k, error in enumerate(seq_error_params):
+                    ax = axes[j][k]
                     freq = output_data.output_frequency
                     gens = output_data.output_after_generations
                     query = ["error_param == @error"]
@@ -946,11 +1041,11 @@ class MetricSubsamplingFigure(TreeMetricsFigure):
             tree_tips = all_tree_tips[0]
             method = averaging_method[0]
             lengths = df.length.unique()
-            error_params = df.error_param.unique()
-            fig, axes = plt.subplots(1, len(error_params),
-                figsize=(12, 6), sharey=True)
-            for k, error in enumerate(error_params):
-                ax = axes[k]
+            seq_error_params = df.error_param.unique()
+            fig, axes = plt.subplots(1, len(seq_error_params),
+                figsize=(12, 6), squeeze=False, sharey=True)
+            for k, error in enumerate(seq_error_params):
+                ax = axes[0][k]
                 display_order = self.single_metric_plot(
                     df.query("error_param == @error"), "subsample_size",
                     ax, method, rho = None, markers = False, x_jitter = 'log')
@@ -970,7 +1065,7 @@ class MetricSubsamplingFigure(TreeMetricsFigure):
                     for d in display_order[['length', 'tool', 'polytomies']].drop_duplicates().itertuples()]
                 labels = ["{} kb".format(d.length//1000)
                     for d in display_order[['length']].drop_duplicates().itertuples()]
-                first_legend = axes[0].legend(
+                first_legend = axes[0][0].legend(
                     artists, labels, numpoints=1, labelspacing=0.1, loc="upper right")
             fig.tight_layout()
             if len(self.output_metrics)==1:
@@ -1003,14 +1098,43 @@ class UkbbStructureFigure(Figure):
         for col in list(df):
             df[col] = scipy.stats.zscore(df[col])
 
-        row_linkage = scipy.cluster.hierarchy.linkage(df, method="average")
-        # Flip the london clade to be on the bottom
-        rotate_linkage(row_linkage, -2)
+        row_linkage = scipy.cluster.hierarchy.linkage(df, method="average", optimal_ordering=True)
+
+        # Tweaks to the clade rotation order
+        # Flip the north vs north-west cities
+        rotate_linkage(row_linkage, -3)
+
+        # Put Welsh towns next to Birmingham
+        rotate_linkage(row_linkage, -8)
+
+        # Do Leeds - Sheffield - Nottingham, not Nottingham - Sheffield - Leeds
+        # (this simply helps the top-to-bottom labelling scheme
+        rotate_linkage(row_linkage, -9)
+        rotate_linkage(row_linkage, -11)
+
+        # Bristol near Welsh towns
+        rotate_linkage(row_linkage, -12)
+
+        # Swansea then Cardiff (highlights association between Cardiff & Bristol)
+        rotate_linkage(row_linkage, -15)
+
+        # The south/south-east centres are a bit visually messy - try putting east at end
+        # Oxford near Bristol
+        rotate_linkage(row_linkage, -16)
+        # Reading nearer Oxford
+        rotate_linkage(row_linkage, -20)
+        # Push Croydon (furthest east) to the end
+        rotate_linkage(row_linkage, -21)
+
         order = scipy.cluster.hierarchy.leaves_list(row_linkage)
         x_pop = df.index.values[order]
 
         cg = sns.clustermap(df[x_pop], row_linkage=row_linkage, col_cluster=False, rasterized=True)
         cg.ax_heatmap.set_ylabel("")
+        for tick in cg.ax_heatmap.get_xticklabels():
+            tick.set_rotation(-45)
+            tick.set_ha('left')
+            tick.set_rotation_mode("anchor")
         self.save("ukbb_ukbb_clustermap_british")
 
     def plot_1kg_ukbb_clustermap(self):
@@ -1119,6 +1243,7 @@ class GlobalStructureFigure(Figure):
         # Same as plot_composite but we don't include the fancy annotations.
 
         colours = get_tgp_region_colours()
+        region_order = ['EUR', 'EAS', 'SAS', 'AFR', 'AMR']
         full_df = pd.read_csv("data/1kg_gnn.csv")
         df = full_df[full_df.population == "PEL"].reset_index()
         A = np.zeros((len(tgp_region_pop), len(df)))
@@ -1141,8 +1266,8 @@ class GlobalStructureFigure(Figure):
         x = np.arange(len(df))
         for j, region in enumerate(regions):
             ax.bar(
-                x, A[j], bottom=np.sum(A[:j, :], axis=0), label=region, width=1,
-                color=colours[region], align="edge")
+                x, A[j], bottom=np.sum(A[:j, :], axis=0), label=region,
+                width=1, color=colours[region], align="edge")
         ax.set_xlim(0, len(df) - 1)
         ax.set_ylim(0, 1)
         ax.set_xticks([])
@@ -1151,24 +1276,22 @@ class GlobalStructureFigure(Figure):
         self.save("1kg_gnn_pel")
 
         for j in range(2):
-            df = pd.read_csv("data/HG01933_parent_ancestry_{}.csv".format((j + 1) % 2))
-            left = df.left
-            width = df.right - left
+            df = pd.read_csv("data/HG01933_local_gnn_{}.csv".format((j + 1) % 2), index_col = 0)
+            left = df["left"]
+            width = np.diff(np.append(left, df.right.max()))
             total = np.zeros_like(width)
             fig, ax = plt.subplots(1, 1, figsize=(17, 1.5))
-            for region in regions:
+            for region in region_order:
                 ax.bar(
-                    left, df[region].values, bottom=total, width=width, align="edge",
+                    left, df[region], bottom=total, width=width, align="edge",
                     label=region, color=colours[region])
-                total += df[region].values
-            # ax.set_title("HG01933 haplotype ({})".format(j + 1))
+                total += df[region]
             ax.set_xticks([])
             ax.set_yticks([])
             ax.set_xlim(0, df.right.max())
             ax.set_ylim(0, 1)
             ax.axis('off')
             self.save("1kg_gnn_HG01933_{}".format(j))
-
 
     def plot(self):
         self.plot_pel_population()
@@ -1223,7 +1346,7 @@ class GlobalStructureFigure(Figure):
         ax_left = plt.subplot(gs[1, 0])
         ax_right = plt.subplot(gs[1, 1])
         for j, ax in enumerate([ax_left, ax_right]):
-            df = pd.read_csv("data/HG01933_parent_ancestry_{}.csv".format((j + 1) % 2))
+            df = pd.read_csv("data/HG01933_local_gnn_{}.csv".format((j + 1) % 2))
             left = df.left
             width = df.right - left
             total = np.zeros_like(width)

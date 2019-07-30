@@ -8,9 +8,13 @@ import os.path
 import argparse
 import subprocess
 import io
+import concurrent.futures
+import sys
 
 import numpy as np
 import msprime
+import tskit
+import tszip
 import scipy.optimize as optimize
 import pandas as pd
 import humanize
@@ -41,7 +45,7 @@ def run_simulation(sample_size):
     subprocess.check_call(["gzip", "-k", trees_file])
 
 
-def run_simulate():
+def run_simulate(args):
     for k in range(1, 8):
         run_simulation(10**k)
 
@@ -117,7 +121,7 @@ def run_benchmark_newick(ts, num_trees):
         (mean_time * ts.num_trees) / 3600, mean_time))
 
 
-def run_benchmark():
+def run_benchmark(args):
     print("msprime version:", msprime.__version__)
 
     before = time.perf_counter()
@@ -153,42 +157,90 @@ def run_benchmark():
     benchmark_bcf(ts)
 
 
-def run_convert_files():
-    for k in range(1, 8):
-        n = 10**k
-        filename = os.path.join(data_prefix, "{}.trees".format(n))
-        if not os.path.exists(filename):
-            break
-        ts = msprime.load(filename)
-        filename += ".gz"
-        if k < 7:
-            filename = os.path.join(data_prefix, "{}.vcf".format(n))
-            with open(filename, "w") as vcf_file:
-                ts.write_vcf(vcf_file, 2)
-            print("Wrote ", filename)
-            gz_filename = filename + ".gz"
-            subprocess.check_call("gzip -c {} > {}".format(filename, gz_filename), shell=True)
-            print("Wrote ", gz_filename)
+def convert_file_worker(k):
+    n = 10**k
+    filename = os.path.join(data_prefix, "{}.trees".format(n))
+    if not os.path.exists(filename):
+        raise ValueError("Missing simulation")
+    ts = msprime.load(filename)
+
+    tsz_filename = filename + ".tsz"
+    tszip.compress(ts, tsz_filename, variants_only=True)
+
+    # Convert to PBWT by piping in VCF. This avoids having the write the
+    # ~10TB VCF to disk.
+    pbwt_filename = os.path.join(data_prefix, "{}.pbwt".format(n))
+    pbwtgz_filename = pbwt_filename + ".gz"
+    sites_filename = os.path.join(data_prefix, "{}.sites".format(n))
+    sitesgz_filename = sites_filename + ".gz"
+
+    cmd = "./tools/pbwt/pbwt -readVcfGT - -write {} -writeSites {}".format(
+        pbwt_filename, sites_filename)
+    read_fd, write_fd = os.pipe()
+    write_pipe = os.fdopen(write_fd, "w")
+    proc = subprocess.Popen(cmd, shell=True, stdin=read_fd)
+    ts.write_vcf(write_pipe, ploidy=2)
+    write_pipe.close()
+    os.close(read_fd)
+    proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError("pbwt failed with status:", proc.returncode)
+
+    subprocess.check_call(
+        "gzip -c {} > {}".format(pbwt_filename, pbwtgz_filename), shell=True)
+
+    subprocess.check_call(
+        "gzip -c {} > {}".format(sites_filename, sitesgz_filename), shell=True)
+
+    if k < 7:
+        vcf_filename = os.path.join(data_prefix, "{}.vcf".format(n))
+        with open(vcf_filename, "w") as vcf_file:
+            ts.write_vcf(vcf_file, 2)
+        print("Wrote ", vcf_filename)
+        gz_filename = vcf_filename + ".gz"
+        subprocess.check_call("gzip -c {} > {}".format(vcf_filename, gz_filename), shell=True)
+        print("Wrote ", gz_filename)
+    return k
 
 
-def run_make_data():
+def run_convert_files(args):
+    work = range(1, 8)
+    # for k in work:
+    #     convert_file_worker(k)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(convert_file_worker, k) for k in work]
+        for future in futures:
+            print(future.result(), "done!")
+
+
+def run_make_data(args):
     sample_size = 10**np.arange(1, 11)
     uncompressed = np.zeros(sample_size.shape)
     compressed = np.zeros(sample_size.shape)
     vcf = np.zeros(sample_size.shape)
     vcfz = np.zeros(sample_size.shape)
+    pbwt = np.zeros(sample_size.shape)
+    pbwtz = np.zeros(sample_size.shape)
 
     GB = 1024**3
     for j, n in enumerate(sample_size):
         files = [
             (uncompressed, os.path.join(data_prefix, "{}.trees".format(n))),
-            (compressed, os.path.join(data_prefix, "{}.trees.gz".format(n))),
+            (compressed, os.path.join(data_prefix, "{}.trees.tsz".format(n))),
             (vcf, os.path.join(data_prefix, "{}.vcf".format(n))),
             (vcfz, os.path.join(data_prefix, "{}.vcf.gz".format(n)))]
+
         for array, filename in files:
             if os.path.exists(filename):
                 array[j] = os.path.getsize(filename) / GB
-
+        pbwt_file = os.path.join(data_prefix, "{}.pbwt".format(n))
+        sites_file = os.path.join(data_prefix, "{}.sites".format(n))
+        pbwtz_file = os.path.join(data_prefix, "{}.pbwt.gz".format(n))
+        sitesz_file = os.path.join(data_prefix, "{}.sites.gz".format(n))
+        if os.path.exists(pbwt_file):
+            pbwt[j] = (os.path.getsize(pbwt_file) + os.path.getsize(sites_file)) / GB
+            pbwtz[j] = (os.path.getsize(pbwtz_file) + os.path.getsize(sitesz_file)) / GB
+            print(j, pbwt[j], pbwtz[j])
     # Fit the model for the observed data.
     rho = 4 * Ne * recombination_rate * length
 
@@ -223,6 +275,8 @@ def run_make_data():
         mulplicative_model, sample_size[index][:-1], vcfz[index][:-1])
     vcfz_fit = mulplicative_model(sample_size, *vcfz_fit_params)
 
+    # We don't try to fit PBWT because we don't have a model for how it
+    # grows.
     df = pd.DataFrame({
         "sample_size": sample_size,
         "compressed": compressed,
@@ -232,11 +286,77 @@ def run_make_data():
         "vcf_fit": vcf_fit,
         "vcfz_fit": vcfz_fit,
         "tsk_fit": tsk_fit,
-        "tskz_fit": tskz_fit})
+        "tskz_fit": tskz_fit,
+        "pbwt": pbwt,
+        "pbwtz": pbwtz,
+        })
     df.to_csv(datafile)
 
 
+def ts_to_minified(ts, filename):
+    """
+    Returns a representation of the specified tree sequence that's optimised
+    to use the minimal amount of storage space. No metadata is stored,
+    and ancestal and derived states must be single characters.
+    """
+    # First reduce to site topology
+    ts = ts.simplify(reduce_to_site_topology=True)
+    tables = ts.tables
+
+    store = zarr.ZipStore(filename, mode='w')
+    root = zarr.group(store=store)
+    nodes = root.create_group("nodes")
+    flags = nodes.empty("flags", shape=ts.num_nodes, dtype=np.uint8)
+    flags[:] = tables.nodes.flags
+    # print(flags.info)
+
+    # Get the indexes into the position array.
+    pos_map = np.hstack([tables.sites.position, [tables.sequence_length]])
+    pos_map[0] = 0
+    left_mapped = np.searchsorted(pos_map, tables.edges.left)
+    if np.any(pos_map[left_mapped] != tables.edges.left):
+        raise ValueError("Invalid left coordinates")
+    right_mapped = np.searchsorted(pos_map, tables.edges.right)
+    if np.any(pos_map[right_mapped] != tables.edges.right):
+        raise ValueError("Invalid right coordinates")
+
+    filters = [numcodecs.Delta(dtype=np.int32, astype=np.int32)]
+    compressor = numcodecs.Blosc(cname='zstd', clevel=9, shuffle=numcodecs.Blosc.SHUFFLE)
+    edges = root.create_group("edges")
+    parent = edges.empty(
+        "parent", shape=ts.num_edges, dtype=np.int32, filters=filters, compressor=compressor)
+    child = edges.empty(
+        "child", shape=ts.num_edges, dtype=np.int32, filters=filters, compressor=compressor)
+    left = edges.empty(
+        "left", shape=ts.num_edges, dtype=np.uint32,filters=filters, compressor=compressor)
+    right = edges.empty(
+        "right", shape=ts.num_edges, dtype=np.uint32,filters=filters, compressor=compressor)
+    parent[:] = tables.edges.parent
+    child[:] = tables.edges.child
+    left[:] = left_mapped
+    right[:] = right_mapped
+    # print(left.info)
+    # print(right.info)
+    # print(parent.info)
+    # print(child.info)
+
+    mutations = root.create_group("mutations")
+    site = mutations.empty(
+        "site", shape=ts.num_mutations, dtype=np.int32, compressor=compressor)
+    node = mutations.empty(
+        "node", shape=ts.num_mutations, dtype=np.int32, compressor=compressor)
+    site[:] = tables.mutations.site
+    node[:] = tables.mutations.node
+    # print(site.info)
+    # print(node.info)
+
+    store.close()
+    store = zarr.ZipStore(filename, mode='r')
+    root = zarr.group(store=store)
+    return root
+
 if __name__ == "__main__":
+
 
     parser = argparse.ArgumentParser(
         description="Run the plot showing the files size storing everyone")
@@ -257,4 +377,4 @@ if __name__ == "__main__":
     subparser.set_defaults(func=run_benchmark)
 
     args = parser.parse_args()
-    args.func()
+    args.func(args)
